@@ -93,31 +93,35 @@ Valid units are, from smallest to largest:
 
 ## Retry-After limiter
 
-There is a version of the rate limiter that will return [Retry-After](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Retry-After) information, the number of seconds before the request should be attempted again. It's used in a similar way:
+There is a version of the rate limiter that will return [Retry-After](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Retry-After) information, the number of seconds before the request should be attempted again. This has been implemented in the `src/hooks.server.ts` file and instead of throwing an error code like other pages, we have to create a new response so that we can add the header reponse.
 
 ```ts
-import { error } from '@sveltejs/kit';
+import type { Handle } from '@sveltejs/kit';
 import { RetryAfterRateLimiter } from 'sveltekit-rate-limiter/server';
 
 const limiter = new RetryAfterRateLimiter({
-  rates: {
-    IP: [10, 'h'],
-    IPUA: [5, 'm']
-  }
+	rates: {
+		IP: [2, '15s']
+	}
 });
 
-export const actions = {
-  default: async (event) => {
-    const status = await limiter.check(event);
-
-    if (status.limited) {
-      event.setHeaders({
-        'Retry-After': status.retryAfter.toString()
-      });
-      return fail(429);
-    }
-  }
+export const handle: Handle = async ({ event, resolve }) => {
+	const status = await limiter.check(event);
+	if (status.limited) {
+		let length = status.retryAfter;
+		let response = new Response(
+			`You are being rate limited. Please try after ${length} seconds.`,
+			{
+				status: 429,
+				headers: { 'Retry-After': status.retryAfter.toString() }
+			}
+		);
+		return response;
+	}
+	const response = await resolve(event);
+	return response;
 };
+
 ```
 
 A custom store for the `RetryAfterRateLimiter` can also be used, in which the second argument to the constructor should be a [RateLimiterStore](https://github.com/ciscoheat/sveltekit-rate-limiter/blob/main/src/lib/server/index.ts#L24) that returns a unix timestamp describing when the request should be reattempted, based on the unit sent to it.
